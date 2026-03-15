@@ -115,7 +115,7 @@ kubectl run redis --image=redis123 --dry-run=client -o yaml > redis-definition.y
 kubectl create -f redis-definition.yaml
 ```
 ## 📌 Step 3
-👉 After that, using kubectl create -f command to create a resource from the manifest file :-
+👉 Verify the work by running kubectl get command :-
 ```bash
 kubectl get pods
 ```
