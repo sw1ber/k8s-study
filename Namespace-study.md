@@ -58,6 +58,7 @@ Blue - Marketing Application
 # 6. What is the shortest DNS name the Blue application should use to access the database redis-db-service in its own namespace - marketing?
 
 You can try it in the web application UI. Use port 6379.
+
 ---
 
  
