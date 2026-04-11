@@ -1,3 +1,5 @@
+<h1> CICD - Study </h1>
+
 1️⃣ WSL2 설치 (리눅스 환경 만들기) <br>
 
  ✅ PowerShell 관리자 실행
@@ -273,3 +275,212 @@ GitHub Personal Access Token을 쓰는 걸 추천 <br>
 Kind는 보통 Username with password 또는 Secret text 
 ID 예시: github-creds <br>
 그리고 Jenkins가 app-repo와 infra-repo 둘 다 접근 가능해야 한다.
+
+<h3>3. Jenkins가 실제로 이미지를 빌드할 수 있게 만들기</h3>
+
+가장 중요하다. 지금 Jenkins는 Kubernetes 안의 Pod로 떠 있고, 그냥 기본 설치만으로는 바로 docker build가 안 될 수 있다. Jenkins Pipeline은 Docker 기반 실행 환경을 잘 지원하지만, 실제 빌드를 하려면 Jenkins Pod에서 Docker CLI/엔진 접근이 되거나, 별도의 빌드 도구가 필요하다.
+
+실습용으로 제일 쉬운 방법은 Jenkins Pod에 Docker socket을 연결해서 docker build를 쓰는 방식이다. 운영 환경에서는 권장되지 않지만, 지금 같은 로컬 학습용에서는 제일 빠르다.
+
+그래서 먼저 확인:
+```bash
+kubectl exec -n jenkins deploy/jenkins -- docker version
+```
+여기서 docker 명령이 없거나 접속 실패하면 Jenkins chart values를 손봐야 한다. <br>
+실습용으로는 크게 두 가지 중 하나다.
+
++Jenkins 컨테이너에 docker CLI 추가 <br>
++/var/run/docker.sock 마운트
+
+<h3> 4. app-repo 만들기 </h3>
+
+예시로 파이썬 Flask 앱 하나 만들기
+
+[app.py]
+```bash
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route("/")
+def hello():
+    return "Hello from Jenkins + ArgoCD!"
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
+```
+
+[requirements.txt]
+```bash
+flask==3.0.3
+```
+
+[Dockerfile]
+```bash
+FROM python:3.11-slim
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY app.py .
+EXPOSE 5000
+CMD ["python", "app.py"]
+```
+<h3> 5. infra-repo deployment.yaml 바꾸기 </h3>
+
+infra-repo/k8s/deployment.yaml 수정 
+
+```bash
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+        - name: myapp
+          image: sw1ber/myapp:initial
+          ports:
+            - containerPort: 5000
+```
+service.yaml도 포트를 5000으로 맞춘다.
+```bash
+apiVersion: v1
+kind: Service
+metadata:
+  name: myapp-svc
+spec:
+  selector:
+    app: myapp
+  ports:
+    - port: 80
+      targetPort: 5000
+  type: ClusterIP
+```
+<h3> 6. Jenkinsfile 만들기 </h3>
+
+app-repo/Jenkinsfile
+
+```bash
+pipeline {
+  agent any
+
+  environment {
+    IMAGE_NAME = "sw1ber/myapp"
+    IMAGE_TAG  = "${env.BUILD_NUMBER}"
+    APP_REPO   = "https://github.com/sw1ber/app-repo.git"
+    INFRA_REPO = "https://github.com/sw1ber/infra-repo.git"
+  }
+
+  stages {
+    stage('Checkout App Repo') {
+      steps {
+        checkout scm
+      }
+    }
+
+    stage('Build Image') {
+      steps {
+        sh 'docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .'
+      }
+    }
+
+    stage('Push Image') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'dockerhub-creds',
+          usernameVariable: 'DOCKER_USER',
+          passwordVariable: 'DOCKER_PASS'
+        )]) {
+          sh '''
+            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
+            docker push ${IMAGE_NAME}:${IMAGE_TAG}
+          '''
+        }
+      }
+    }
+
+    stage('Update Infra Repo') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'github-creds',
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_PASS'
+        )]) {
+          sh '''
+            rm -rf infra-repo
+            git clone https://${GIT_USER}:${GIT_PASS}@github.com/sw1ber/infra-repo.git
+            cd infra-repo
+
+            sed -i 's#image: .*#image: '"${IMAGE_NAME}:${IMAGE_TAG}"'#' k8s/deployment.yaml
+
+            git config user.name "jenkins"
+            git config user.email "jenkins@local"
+            git add k8s/deployment.yaml
+            git commit -m "Update image to ${IMAGE_NAME}:${IMAGE_TAG}" || true
+            git push origin main
+          '''
+        }
+      }
+    }
+  }
+}
+```
+
+위 Jenkinsfile이 하는 일은 이거다.
+
+앱 소스 checkout 
+Docker 이미지 빌드<br>
+Docker Hub push<br>
+infra-repo clone<br>
+deployment.yaml의 image: 줄 교체<br>
+GitHub push
+
+그리고 나면 ArgoCD가 그 변경을 자동 감지해서 배포한다. 이게 바로 Argo CD 자동 동기화가 권장하는 CI/CD 방식이다.
+
+<h3> 7. Jenkins Job 만들기 </h3>
+Jenkins에서: <br>
+New Item <br>
+Pipeline <br>
+이름: myapp-cicd
+
+설정에서: <br>
+Pipeline script from SCM <br>
+Git repo URL: https://github.com/sw1ber/app-repo.git <br>
+Branch: main <br>
+Script Path: Jenkinsfile <br>
+저장 후 Build Now.
+
+<h3> 8. 성공하면 어디서 확인? </h3>
+Jenkins 콘솔 로그에서:
+
+docker build 성공 <br>
+docker push 성공 <br>
+infra-repo push 성공 <br>
+
+그다음 GitHub의 infra-repo/k8s/deployment.yaml에서 image 태그가 바뀐 걸 확인.
+
+그 다음 ArgoCD 앱 infra-cicd에서:
+잠깐 OutOfSync <br>
+자동으로 Sync <br>
+Healthy 
+
+이 흐름이 보여야 정상이다.
+
+<h3> 9. 배포된 앱 확인 </h3>
+
+서비스 포트포워딩:
+```bash
+kubectl port-forward svc/myapp-svc 8082:80
+```
+브라우저:
+```bash
+http://localhost:8082
+```
