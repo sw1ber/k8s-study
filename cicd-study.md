@@ -276,27 +276,209 @@ Kind는 보통 Username with password 또는 Secret text
 ID 예시: github-creds <br>
 그리고 Jenkins가 app-repo와 infra-repo 둘 다 접근 가능해야 한다.
 
-<h3>3. Jenkins가 실제로 이미지를 빌드할 수 있게 만들기</h3>
+🚀 1️⃣ GitHub Personal Access Token 만들기
 
-가장 중요하다. 지금 Jenkins는 Kubernetes 안의 Pod로 떠 있고, 그냥 기본 설치만으로는 바로 docker build가 안 될 수 있다. Jenkins Pipeline은 Docker 기반 실행 환경을 잘 지원하지만, 실제 빌드를 하려면 Jenkins Pod에서 Docker CLI/엔진 접근이 되거나, 별도의 빌드 도구가 필요하다.
+👉 GitHub
 
-실습용으로 제일 쉬운 방법은 Jenkins Pod에 Docker socket을 연결해서 docker build를 쓰는 방식이다. 운영 환경에서는 권장되지 않지만, 지금 같은 로컬 학습용에서는 제일 빠르다.
-
-그래서 먼저 확인:
+👉 생성 방법
 ```bash
-kubectl exec -n jenkins deploy/jenkins -- docker version
+GitHub 로그인 
+오른쪽 위 프로필 클릭 
+Settings 
+Developer settings 
+Personal access tokens 
+Tokens (classic) 클릭 
+Generate new token (classic)
 ```
-여기서 docker 명령이 없거나 접속 실패하면 Jenkins chart values를 손봐야 한다. <br>
-실습용으로는 크게 두 가지 중 하나다.
 
-+Jenkins 컨테이너에 docker CLI 추가 <br>
-+/var/run/docker.sock 마운트
+👉 권한 설정 (중요🔥)
 
-<h3> 4. app-repo 만들기 </h3>
+✔ 체크:
+``` bash
+repo
+```
+👉 이것만 있으면 충분
 
-예시로 파이썬 Flask 앱 하나 만들기
+👉 생성하면
+```bash
+ghp_xxxxxxxx
+```
 
-[app.py]
+👉 이거 한 번만 보여줌 (복사 필수)
+
+🚀 2️⃣ Jenkins에 등록
+👉 경로
+
+Jenkins UI에서:
+```bash
+Manage Jenkins
+ → Credentials
+ → System
+ → Global credentials
+ ```
+ 👉 Add Credentials 클릭
+ 
+ 👉 입력값
+
+ Kind 
+ ```bash
+ Username with password
+ ```
+ Username
+ ```bash
+ GitHub 아이디
+ ```
+ Password
+ ```bash
+ 방금 만든 Personal Access Token(ghp_xxxxxx)
+ ```
+ ID (중요)
+ ```bash
+ github-creds
+ ```
+  Description (선택)
+ ```bash
+ github token
+ ```
+ 👉 Save
+
+ 🚀 3️⃣ 정상 확인
+
+👉 Jenkins에서 테스트:
+1. 새 Job 생성
+
+Jenkins 메인 화면에서:
+```bash
+New Item
+이름: github-creds-test
+Pipeline 선택
+OK
+```
+2. Pipeline script로 직접 테스트
+
+맨 아래 Pipeline 부분에서:
+```bash
+Definition: Pipeline script
+```
+
+여기에 아래 코드 넣기.
+```bash
+pipeline {
+  agent any
+
+  stages {
+    stage('Test GitHub Credentials - Clone') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'github-creds',
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_PASS'
+        )]) {
+          sh '''
+            set -e
+            rm -rf infra-repo-test
+            git clone https://${GIT_USER}:${GIT_PASS}@github.com/sw1ber/infra-repo.git infra-repo-test
+            ls -al infra-repo-test
+          '''
+        }
+      }
+    }
+  }
+}
+```
+👉 되면 성공
+
+
+🚀 4️⃣ push 테스트 
+
+1. 기존 Job 수정
+
+기존 github-creds-test Job 수정
+```bash
+pipeline {
+  agent any
+
+  stages {
+    stage('Test GitHub Credentials - Push') {
+      steps {
+        withCredentials([usernamePassword(
+          credentialsId: 'github-creds',
+          usernameVariable: 'GIT_USER',
+          passwordVariable: 'GIT_PASS'
+        )]) {
+          sh '''
+            set -e
+            rm -rf infra-repo-test
+            git clone https://${GIT_USER}:${GIT_PASS}@github.com/sw1ber/infra-repo.git infra-repo-test
+            cd infra-repo-test
+
+            echo "jenkins test $(date)" > jenkins-test.txt
+
+            git config user.name "jenkins"
+            git config user.email "jenkins@local"
+
+            git add jenkins-test.txt
+            git commit -m "test push from jenkins" || true
+            git push origin main
+          '''
+        }
+      }
+    }
+  }
+}
+```
+3. 실행
+```bash
+Save
+Build Now
+```
+
+4. 확인
+
+<h4>Jenkins Console Output</h4>
+
+``` bash 
+git push origin main
+Finished: SUCCESS
+```
+<h4>GitHub repo</h4>
+
+infra-repo 들어가서
+```bash
+jenkins-test.txt
+```
+파일이 생겼는지 확인
+
+-------------------------------------------------------------------
+
+<h3>Jenkins가 실제로 이미지를 빌드할 수 있게 만들기</h3>
+
+<h4>전체 흐름</h4>
+
+```bash
+app-repo 코드 수정
+→ Jenkins 빌드
+→ Docker Hub push
+→ infra-repo deployment.yaml 수정
+→ GitHub push
+→ ArgoCD 자동 Sync
+→ 새 버전 배포
+```
+
+<h4>1. app-repo 만들기</h4>
+
+이제 infra-repo 말고 앱 소스용 repo 하나 필요
+
+```bash
+app-repo/
+├─ app.py
+├─ requirements.txt
+├─ Dockerfile
+└─ Jenkinsfile
+```
+<h4>2. 앱 파일 만들기</h4>
+
+app.py
 ```bash
 from flask import Flask
 
@@ -304,18 +486,17 @@ app = Flask(__name__)
 
 @app.route("/")
 def hello():
-    return "Hello from Jenkins + ArgoCD!"
+    return "Hello from Jenkins auto deploy!"
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
 ```
-
-[requirements.txt]
+requirements.txt
 ```bash
 flask==3.0.3
 ```
 
-[Dockerfile]
+Dockerfile
 ```bash
 FROM python:3.11-slim
 WORKDIR /app
@@ -325,10 +506,10 @@ COPY app.py .
 EXPOSE 5000
 CMD ["python", "app.py"]
 ```
-<h3> 5. infra-repo deployment.yaml 바꾸기 </h3>
 
-infra-repo/k8s/deployment.yaml 수정 
+<h4>3. infra-repo YAML 바꾸기</h4>
 
+infra-repo/k8s/deployment.yaml
 ```bash
 apiVersion: apps/v1
 kind: Deployment
@@ -350,7 +531,8 @@ spec:
           ports:
             - containerPort: 5000
 ```
-service.yaml도 포트를 5000으로 맞춘다.
+infra-repo/k8s/service.yaml
+
 ```bash
 apiVersion: v1
 kind: Service
@@ -364,35 +546,109 @@ spec:
       targetPort: 5000
   type: ClusterIP
 ```
-<h3> 6. Jenkinsfile 만들기 </h3>
+
+<h4>3. Docker Hub 생성(harbor 대체)</h4>
+
+1. Docker Hub 로그인
+2. Repositories 화면으로 이동
+3. Create repository 클릭
+
+```bash
+Namespace: 네 Docker Hub 계정명
+Repository Name: 예를 들면 myapp
+Description: 선택
+Visibility: Public 또는 Private
+```
+4. 네이밍
+
+Docker Hub 아이디가 swiber
+Repository Name을 myapp
+
+그러면 최종 이미지 이름은 이렇게 된다.
+
+```bash
+swiber/myapp
+```
+Jenkinsfile
+
+```bash
+environment {
+  IMAGE_NAME = "swiber/myapp"
+}
+```
+
+deployment.yaml에서 이렇게 사용
+
+```bash
+image: swiber/myapp:initial
+```
+<h4>4. Jenkins에 Docker Hub credential 추가</h4>
+Jenkins UI:
+
+```bash
+Manage Jenkins
+Credentials
+System
+Global credentials
+Add Credentials
+```
+입력:
+
+```bash
+Kind: Username with password
+Username: 네 Docker Hub 아이디
+Password: Docker Hub 비밀번호 또는 Access Token(dckr_pat_THtm-xxxxxxxx)
+ID: dockerhub-creds
+```
+
+<h4>5. app-repo에 Jenkinsfile 넣기</h4>
+
+docker build(wsl docker 소켓 연결x) 대신 Kaniko executor를 쓰는 Jenkinsfile로 구성
 
 app-repo/Jenkinsfile
 
 ```bash
-pipeline {
-  agent any
+agent {
+  kubernetes {
+    yaml """
+apiVersion: v1
+kind: Pod
+spec:
+  containers:
+    - name: jnlp
+      image: jenkins/inbound-agent:3355.v388858a_47b_33-17
+      tty: true
+    - name: kaniko
+      image: gcr.io/kaniko-project/executor:debug
+      command:
+        - /busybox/cat
+      tty: true
+      volumeMounts:
+        - name: docker-config
+          mountPath: /kaniko/.docker
+  volumes:
+    - name: docker-config
+      emptyDir: {}
+"""
+  }
+}
+"""
+    }
+  }
 
   environment {
     IMAGE_NAME = "sw1ber/myapp"
-    IMAGE_TAG  = "${env.BUILD_NUMBER}"
-    APP_REPO   = "https://github.com/sw1ber/app-repo.git"
-    INFRA_REPO = "https://github.com/sw1ber/infra-repo.git"
+    IMAGE_TAG  = "${BUILD_NUMBER}"
   }
 
   stages {
-    stage('Checkout App Repo') {
+    stage('Checkout App') {
       steps {
         checkout scm
       }
     }
 
-    stage('Build Image') {
-      steps {
-        sh 'docker build -t ${IMAGE_NAME}:${IMAGE_TAG} .'
-      }
-    }
-
-    stage('Push Image') {
+    stage('Prepare Docker Auth') {
       steps {
         withCredentials([usernamePassword(
           credentialsId: 'dockerhub-creds',
@@ -400,8 +656,31 @@ pipeline {
           passwordVariable: 'DOCKER_PASS'
         )]) {
           sh '''
-            echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
-            docker push ${IMAGE_NAME}:${IMAGE_TAG}
+            mkdir -p /home/jenkins/agent/docker-config
+            AUTH=$(printf "%s:%s" "$DOCKER_USER" "$DOCKER_PASS" | base64 | tr -d '\n')
+            cat > /home/jenkins/agent/docker-config/config.json <<EOF
+{
+  "auths": {
+    "https://index.docker.io/v1/": {
+      "auth": "$AUTH"
+    }
+  }
+}
+EOF
+          '''
+        }
+      }
+    }
+
+    stage('Build & Push Image with Kaniko') {
+      steps {
+        container('kaniko') {
+          sh '''
+            cp /home/jenkins/agent/docker-config/config.json /kaniko/.docker/config.json
+            /kaniko/executor \
+              --context "${WORKSPACE}" \
+              --dockerfile "${WORKSPACE}/Dockerfile" \
+              --destination "${IMAGE_NAME}:${IMAGE_TAG}"
           '''
         }
       }
@@ -415,6 +694,7 @@ pipeline {
           passwordVariable: 'GIT_PASS'
         )]) {
           sh '''
+            set -e
             rm -rf infra-repo
             git clone https://${GIT_USER}:${GIT_PASS}@github.com/sw1ber/infra-repo.git
             cd infra-repo
@@ -424,7 +704,7 @@ pipeline {
             git config user.name "jenkins"
             git config user.email "jenkins@local"
             git add k8s/deployment.yaml
-            git commit -m "Update image to ${IMAGE_NAME}:${IMAGE_TAG}" || true
+            git commit -m "update image to ${IMAGE_NAME}:${IMAGE_TAG}" || true
             git push origin main
           '''
         }
@@ -434,53 +714,59 @@ pipeline {
 }
 ```
 
-위 Jenkinsfile이 하는 일은 이거다.
+<h4>7. Jenkins Job 만들기</h4>
 
-앱 소스 checkout 
-Docker 이미지 빌드<br>
-Docker Hub push<br>
-infra-repo clone<br>
-deployment.yaml의 image: 줄 교체<br>
-GitHub push
-
-그리고 나면 ArgoCD가 그 변경을 자동 감지해서 배포한다. 이게 바로 Argo CD 자동 동기화가 권장하는 CI/CD 방식이다.
-
-<h3> 7. Jenkins Job 만들기 </h3>
-Jenkins에서: <br>
-New Item <br>
-Pipeline <br>
-이름: myapp-cicd
-
-설정에서: <br>
-Pipeline script from SCM <br>
-Git repo URL: https://github.com/sw1ber/app-repo.git <br>
-Branch: main <br>
-Script Path: Jenkinsfile <br>
-저장 후 Build Now.
-
-<h3> 8. 성공하면 어디서 확인? </h3>
-Jenkins 콘솔 로그에서:
-
-docker build 성공 <br>
-docker push 성공 <br>
-infra-repo push 성공 <br>
-
-그다음 GitHub의 infra-repo/k8s/deployment.yaml에서 image 태그가 바뀐 걸 확인.
-
-그 다음 ArgoCD 앱 infra-cicd에서:
-잠깐 OutOfSync <br>
-자동으로 Sync <br>
-Healthy 
-
-이 흐름이 보여야 정상이다.
-
-<h3> 9. 배포된 앱 확인 </h3>
-
-서비스 포트포워딩:
+Jenkins에서:
 ```bash
-kubectl port-forward svc/myapp-svc 8082:80
+New Item
+이름: myapp-cicd
+Pipeline
+```
+설정:
+```bash
+Definition: Pipeline script from SCM
+SCM: Git
+Repository URL: https://github.com/sw1ber/app-repo.git
+Branch: */main
+Script Path: Jenkinsfile
+```
+저장 후 Build Now
+
+<h4>8. 빌드 성공 확인</h4>
+
+Jenkins 콘솔에서:
+```bash
+Checkout 성공
+Kaniko build/push 성공
+infra-repo push 성공
+```
+그다음 GitHub infra-repo에서:
+```bash
+k8s/deployment.yaml의 image 태그 변경 확인
+```
+
+그다음 ArgoCD에서:
+```bash
+잠깐 OutOfSync
+자동 Sync
+Healthy
+```
+👉 기존 nginx 제거 
+```bash
+kubectl delete deploy cicd-nginx
+kubectl delete svc cicd-nginx-svc
+```
+
+마지막으로 앱 확인:
+```bash
+kubectl get pods
+kubectl port-forward svc/myapp-svc 28080:80 &
 ```
 브라우저:
 ```bash
-http://localhost:8082
+http://localhost:28080
 ```
+
+🚀 최종 구조 (한 줄 요약)
+
+👉 개발자가 코드 수정 → Jenkins가 이미지 빌드 → Docker Hub 업로드 → infra-repo 수정 → ArgoCD가 감지해서 쿠버네티스 배포
