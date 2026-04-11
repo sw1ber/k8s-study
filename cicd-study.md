@@ -1,16 +1,25 @@
-1️⃣ WSL2 설치 (리눅스 환경 만들기)
-1. PowerShell 관리자 실행
-wsl.exe --install -d Ubuntu-22.04
+1️⃣ WSL2 설치 (리눅스 환경 만들기) <br>
+
+ ✅ PowerShell 관리자 실행
+ ```bash
+   wsl.exe --install -d Ubuntu-22.04
+ ```
+
 
 WSL2 활성화
 Ubuntu 자동 설치됨
 
 ✅ 설치 확인
-wsl -l -v
+```bash
+   wsl -l -v
+```
+
 
 ✅ Ubuntu 최초 실행
 wsl  
 id pw 생성(swiber, 1234)
+
+------------------------------------------------------------------------
 
 2️⃣ Docker Desktop 설치
 
@@ -21,50 +30,77 @@ Docker Desktop 실행 → Settings → WSL Integration
 ✅ “Enable integration with my default WSL distro”
 ✅ Ubuntu 체크
 
+------------------------------------------------------------------------
+
 3️⃣ k3d 설치 (WSL 안에서)
 
 ✅ 설치 명령어
 
 WSL(Ubuntu) 안에서 실행:
+```bash
 curl -s https://raw.githubusercontent.com/k3d-io/k3d/main/install.sh | bash
+```
 
 ✅ 설치 확인
 k3d version
 
--------------------------------------------------------------------------------------
+------------------------------------------------------------------------
 
 1️⃣ k3d 클러스터 생성
 
 WSL(Ubuntu)에서 실행:
+```bash
+k3d cluster create cicd-cluster -p "8081:80@loadbalancer"
+```
 
-k3d cluster create cicd-cluster \
-  -p "8081:80@loadbalancer"
 
 ✅ 확인
+```bash
 kubectl get nodes
+```
+
 
 👉 결과:
 
 k3d-cicd-cluster-server-0   Ready
  ArgoCD 설치 (핵심🔥)
 
+ -----------------------------------------------------------------------
+
 2️⃣ 👉 Argo CD
 
-설치
+✅설치
+```bash
 kubectl create namespace argocd
+```
 
-kubectl apply -n argocd \
--f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```bash
+kubectl apply -n argocd -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+```
 
-3️⃣ ArgoCD 접속 설정
-NodePort로 열기
+
+ -----------------------------------------------------------------------
+
+3️⃣ ArgoCD 접속 설정 <br>
+
+✅ NodePort로 열기
+```bash
 kubectl patch svc argocd-server -n argocd \
 -p '{"spec": {"type": "NodePort"}}'
-포트 확인
+```
+
+✅ 포트 확인
+
+```bash
 kubectl get svc -n argocd
+```
+
 
 👉 port-forward 사용(백그라운드)
+```bash
 kubectl port-forward svc/argocd-server -n argocd 8080:443 &
+```
+
 
 👉 그 다음 접속:
 
@@ -73,13 +109,16 @@ https://localhost:8080
 NodePort가 Docker 내부 네트워크에만 열리기 때문
 
 초기 비밀번호 확인
-kubectl -n argocd get secret argocd-initial-admin-secret \
--o jsonpath="{.data.password}" | base64 -d
 
-id admin 
+```bash
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+```
+
+
+id admin <br>
 pw 4RrQawRRFbp2BuG1
 
--------------------------------------------------------------------------------------
+ -----------------------------------------------------------------------
 
 1️⃣ Jenkins 설치
 
@@ -89,62 +128,79 @@ Helm 설치 (필수)
 
 WSL(Ubuntu)에서 실행 👇
 
+```bash
 curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
 
 ✅ Helm으로 설치 
-kubectl create namespace jenkins
 
+```bash
+kubectl create namespace jenkins
+```
+```bash
 helm repo add jenkins https://charts.jenkins.io
 helm repo update
-
 helm install jenkins jenkins/jenkins -n jenkins
+```
+✅ 접속설정(포트포워딩)
 
-접속(포트포워딩)
-
+```bash
 kubectl port-forward svc/jenkins -n jenkins 18080:8080 &
+```
+
 
 ✅ admin password
-kubectl get secret jenkins -n jenkins -o jsonpath="{.data.jenkins-admin-password}" | base64 -d
 
-id admin 
+```bash
+kubectl get secret jenkins -n jenkins -o jsonpath="{.data.jenkins-admin-password}" | base64 -d
+```
+
+
+id admin <br>
 pw ExK2p6jgif2u9Zt6pF7lYz
 
--------------------------------------------------------------------------------------
+ -----------------------------------------------------------------------
 
 2️⃣ Git Repo 준비 
 
-👉 repo 2개 구조 추천
+👉 repo 2개 구조 
 
 1. app-repo (코드)
 2. infra-repo (k8s yaml)
 📦 예시 구조
 app-repo
-app/
- ├── app.py
+<br>
+app/ <br>
+ ├── app.py <br>
  └── Dockerfile
 infra-repo
-k8s/
- └── deployment.yaml
-📄 deployment.yaml 예시
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: myapp
+<br>
+k8s/ <br>
+ └── deployment.yaml<br>
+📄 deployment.yaml 예시 
+```bash
+apiVersion: apps/v1  
+kind: Deployment 
+metadata: 
+  name: myapp   
 spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: myapp
-  template:
-    metadata:
-      labels:
-        app: myapp
-    spec:
-      containers:
-      - name: myapp
-        image: dockerhub아이디/myapp:latest
-        ports:
+  replicas: 1  
+  selector: 
+    matchLabels:  
+      app: myapp 
+  template: 
+    metadata: 
+      labels: 
+        app: myapp  
+    spec: 
+      containers: 
+      - name: myapp 
+        image: nginx 
+        ports: 
         - containerPort: 5000
+```
+ 
+ -----------------------------------------------------------------------    
 3️⃣ ArgoCD에 Git 연결
 
 👉 Argo CD
@@ -169,3 +225,51 @@ Namespace: default
 👉 Create 누르면 자동 배포됨
 
 
+4️⃣ Jenkins 자동 배포 <br>
+app-repo 코드 수정 <br>
+→ Jenkins 빌드 <br>
+→ Docker Hub에 이미지 push <br>
+→ Jenkins가 infra-repo deployment.yaml의 image 태그 수정 <br>
+→ Git push <br>
+→ ArgoCD 자동 Sync <br>
+→ k3d에 새 버전 배포
+
+✅ repo 구조를 두 개의 저장소로 나누기 <br>
+app-repo   : 파이썬/프론트/백엔드 소스 + Dockerfile + Jenkinsfile <br>
+infra-repo : k8s/deployment.yaml, service.yaml 
+
+<h3>1. ArgoCD 자동 배포 켜기(지금 까지는 수동 Sync)</h3>
+
+```bash
+kubectl get application infra-cicd -n argocd -o yaml
+```
+✅ spec.syncPolicy 없을시 추가 
+```bash
+kubectl edit application infra-cicd -n argocd
+```
+📄 수정 예시:
+```bash
+spec:
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+```
+
+<h3>2. Docker Hub 계정과 Jenkins Credential 준비 <br> </h3>
+
+Jenkins는 민감정보를 Credentials로 관리하는 게 기본이고, Pipeline에서는 withCredentials로 바인딩해 쓸 수 있다.
+
+Jenkins UI에서 아래 두 개를 먼저 만든다.
+
+첫 번째는 Docker Hub 계정.
+
+Kind: Username with password <br>
+ID: dockerhub-creds
+
+두 번째는 GitHub push용 계정.
+
+GitHub Personal Access Token을 쓰는 걸 추천 <br>
+Kind는 보통 Username with password 또는 Secret text 
+ID 예시: github-creds <br>
+그리고 Jenkins가 app-repo와 infra-repo 둘 다 접근 가능해야 한다.
