@@ -29,7 +29,7 @@ Docker Desktop 실행 → Settings → WSL Integration
 
 ✔ 체크해야 할 것:
 
-✅ “Enable integration with my default WSL distro”
+✅ “Enable integration with my default WSL distro” <br>
 ✅ Ubuntu 체크
 
 ------------------------------------------------------------------------
@@ -167,18 +167,19 @@ pw ExK2p6jgif2u9Zt6pF7lYz
 
 👉 repo 2개 구조 
 
+```bash
 1. app-repo (코드)
 2. infra-repo (k8s yaml)
 📦 예시 구조
 app-repo
-<br>
-app/ <br>
- ├── app.py <br>
+app/ 
+ ├── app.py 
  └── Dockerfile
 infra-repo
-<br>
-k8s/ <br>
- └── deployment.yaml<br>
+k8s/ 
+ └── deployment.yaml
+```
+
 📄 deployment.yaml 예시 
 ```bash
 apiVersion: apps/v1  
@@ -212,6 +213,7 @@ spec:
 👉 Applications → NEW APP
 
 설정
+```bash
 Application Name: infra-cicd
 Project Name: default
 Sync Policy: Manual
@@ -223,7 +225,7 @@ Destination:
 
 Cluster URL: https://kubernetes.default.svc
 Namespace: default
-
+```
 👉 Create 누르면 자동 배포됨
 
 
@@ -770,3 +772,6 @@ http://localhost:28080
 🚀 최종 구조 (한 줄 요약)
 
 👉 개발자가 코드 수정 → Jenkins가 이미지 빌드 → Docker Hub 업로드 → infra-repo 수정 → ArgoCD가 감지해서 쿠버네티스 배포
+
+
+
